@@ -3,15 +3,43 @@ const httpStatusText = require('../utils/httpStatusText');
 const Project = require('../models/project.model');
 
 // Create a new project
+// const createProject = errorHandling.asyncHandler(async (req, res, next) => {
+//   const project = req.body;
+
+//   const newProject = await Project.create(project);
+//   if (!newProject)
+//     return next(new Error(`Can't create project`, { cause: 400 }));
+
+//   return res.status(201).json({ status: httpStatusText.SUCCESS, data: { newProject } });
+// });
+
+
 const createProject = errorHandling.asyncHandler(async (req, res, next) => {
   const project = req.body;
+  // const {createdBy}= req.body
+
+  // Parse updates if present
+  if (project.updates) {
+    try {
+      project.updates = JSON.parse(project.updates);
+    } catch (error) {
+      return next(new Error(`Invalid updates format`, { cause: 400 }));
+    }
+  }
+
+  // Handle picture upload
+  if (req.file) {
+    project.picture = req.file.path; // Save the file path to the picture field
+  }
 
   const newProject = await Project.create(project);
-  if (!newProject)
+  if (!newProject) {
     return next(new Error(`Can't create project`, { cause: 400 }));
+  }
 
-  return res.status(201).json({ status: httpStatusText.SUCCESS, data: { newProject } });
+  return res.status(201).json({ status: 'success', data: { newProject } });
 });
+
 
 // Get a project by ID
 const getProjectById = errorHandling.asyncHandler(async (req, res, next) => {
@@ -26,76 +54,81 @@ const getProjectById = errorHandling.asyncHandler(async (req, res, next) => {
 
 // Get all projects
 const getAllProjects = errorHandling.asyncHandler(async (req, res, next) => {
-  const projects = await Project.find();
+  const {createdBy}= req.params
+  const projects = await Project.find({createdBy});
 
   return res.status(200).json({ status: httpStatusText.SUCCESS, data: { projects } });
 });
 
 
-const updateProjectGeneralById = errorHandling.asyncHandler(async (req, res, next) => {
-    const projectId = req.params.id;
-    const updates = req.body;
-    const { checkedBy, designedBy } = req.body;
-  
-    let updateFields = { ...updates };
-  
-    // Remove checkedBy and designedBy from general updates as they need to be pushed
-    delete updateFields.checkedBy;
-    delete updateFields.designedBy;
-  
-    // Perform $push operations separately for checkedBy and designedBy
+const updateProjectGeneralById = async (req, res, next) => {
+  const projectId = req.params.id;
+  const updates = req.body;
+  const { checkedBy, designedBy, ...updateFields } = updates; // Destructure checkedBy and designedBy separately
+
+  try {
+    // Update checkedBy if provided
     if (checkedBy) {
       await Project.findByIdAndUpdate(
         projectId,
-        { $push: { checkedBy: checkedBy } },
+        { $addToSet: { checkedBy: { $each: checkedBy } } }, // Use $addToSet to add unique items
         { new: true }
       );
     }
-  
+
+    // Update designedBy if provided
     if (designedBy) {
       await Project.findByIdAndUpdate(
         projectId,
-        { $push: { designedBy: designedBy } },
+        { $addToSet: { designedBy: { $each: designedBy } } }, // Use $addToSet to add unique items
         { new: true }
       );
     }
-  
-    // Perform $set operation for the rest of the fields
+
+    // Update other fields using $set
     const updatedProject = await Project.findByIdAndUpdate(
       projectId,
       { $set: updateFields },
       { new: true }
     );
-  
+
     if (!updatedProject) {
-      return next(new Error(`Can't update project`, { cause: 400 }));
+      return res.status(404).json({ error: 'Project not found' });
     }
+
+    return res.status(200).json({ status: 'success', data: { updatedProject } });
+  } catch (error) {
+    console.error('Error updating project:', error);
+    return res.status(500).json({ error: 'Failed to update project' });
+  }
+};
   
-    return res.status(200).json({ status: httpStatusText.SUCCESS, data: { updatedProject } });
+  const updateProjectById = errorHandling.asyncHandler(async (req, res, next) => {
+    const projectId = req.params.id;
+    const { updates } = req.body;  // Assuming updates is correctly structured as an array of objects
+  
+    const newUpdates = updates.map(update => ({
+      update: update.update,
+      updateDate: update.updateDate || Date.now()  // Use provided updateDate or current date
+    }));
+  
+    try {
+      const updatedProject = await Project.findByIdAndUpdate(
+        projectId,
+        { $push: { updates: { $each: newUpdates } } },
+        { new: true }
+      );
+  
+      if (!updatedProject) {
+        return next(new Error(`Can't update project`, { cause: 400 }));
+      }
+  
+      return res.status(200).json({ status: httpStatusText.SUCCESS, data: { updatedProject } });
+    } catch (error) {
+      return next(new Error(`Failed to update project: ${error.message}`));
+    }
   });
   
-  module.exports = {
-    updateProjectGeneralById,
-  };
-  
-const updateProjectById = errorHandling.asyncHandler(async (req, res, next) => {
-  const projectId = req.params.id;
-  const updates = req.body.updates;
-
-
-  const updatedProject = await Project.findByIdAndUpdate(
-    projectId,
-    { $push: {
-         updates: [{ update: updates, updateDate: Date.now() }] 
-        
-        } },
-    { new: true }
-  );
-  if (!updatedProject)
-    return next(new Error(`Can't update project`, { cause: 400 }));
-
-  return res.status(200).json({ status: httpStatusText.SUCCESS, data: { updatedProject } });
-});
 // Update a submittionPackage by ID
 const updateSubmittionPackageById = errorHandling.asyncHandler(async (req, res, next) => {
   const projectId = req.params.id;

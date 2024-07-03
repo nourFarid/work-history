@@ -1,6 +1,6 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
-const project = new mongoose.Schema(
+const projectSchema = new mongoose.Schema(
   {
     projectName: String,
     client: String,
@@ -19,10 +19,12 @@ const project = new mongoose.Schema(
         update: String,
       },
     ],
+    picture: String, // Add this line for the picture
+    createdBy: { type: mongoose.ObjectId, ref: 'user', }
   },
   {
     timestamps: true,
   }
 );
 
-module.exports = mongoose.model("project", project);
+module.exports = mongoose.model('project', projectSchema);
